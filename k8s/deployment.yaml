@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-admin
+  namespace: mysql-admin
+  labels:
+    app: mysql-admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-admin
+  template:
+    metadata:
+      labels:
+        app: mysql-admin
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: mysql-admin
+          image: your-registry/mysql-admin:latest  # replace with your image
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-admin-secret
+                  key: ADMIN_USER
+            - name: ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-admin-secret
+                  key: ADMIN_PASS
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-admin-secret
+                  key: ENCRYPTION_KEY
+            - name: DATA_DIR
+              value: "/data"
+            - name: PORT
+              value: "8080"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /ui/
+              port: 8080
+              httpHeaders:
+                - name: Authorization
+                  value: Basic YWRtaW46YWRtaW4=  # base64("admin:admin") — update for health checks
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ui/
+              port: 8080
+              httpHeaders:
+                - name: Authorization
+                  value: Basic YWRtaW46YWRtaW4=
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mysql-admin-data

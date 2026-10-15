@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MySQL Admin</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+  body { background: #f0f2f5; }
+  .sidebar { width: 260px; min-height: 100vh; background: #1a1a2e; color: #e0e0e0; }
+  .sidebar .brand { padding: 1.5rem 1rem; font-size: 1.1rem; font-weight: 700; color: #fff; border-bottom: 1px solid #333; }
+  .sidebar .brand small { display: block; font-size: 0.7rem; font-weight: 400; color: #888; margin-top: 2px; }
+  .server-item { padding: 0.6rem 1rem; cursor: pointer; border-left: 3px solid transparent; transition: all .15s; }
+  .server-item:hover { background: #2a2a4e; }
+  .server-item.active { background: #16213e; border-left-color: #4fc3f7; color: #fff; }
+  .server-item .server-name { font-weight: 500; font-size: 0.9rem; }
+  .server-item .server-host { font-size: 0.75rem; color: #888; }
+  .server-status { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .status-ok { background: #4caf50; }
+  .status-err { background: #f44336; }
+  .status-unk { background: #888; }
+  .main-content { flex: 1; padding: 1.5rem; }
+  .nav-tabs .nav-link { color: #555; }
+  .nav-tabs .nav-link.active { font-weight: 600; }
+  .grant-block { background: #1e1e1e; color: #a8ff78; border-radius: 6px; padding: 0.75rem 1rem; font-family: monospace; font-size: 0.82rem; line-height: 1.6; }
+  .badge-role { background: #6f42c1; color: #fff; }
+  .table th { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: #666; }
+  .empty-state { text-align: center; padding: 3rem; color: #aaa; }
+  .empty-state i { font-size: 3rem; display: block; margin-bottom: 0.5rem; }
+  #alert-area { position: fixed; top: 1rem; right: 1rem; z-index: 9999; min-width: 300px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  .section-header h5 { margin: 0; }
+  #permissions-matrix th { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; text-align: center; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+  #permissions-matrix th:first-child { text-align: left; }
+  #permissions-matrix td.pending { background-color: #fff8e1 !important; }
+  #matrix-container .table-responsive { max-height: calc(100vh - 280px); overflow-y: auto; }
+</style>
+</head>
+<body>
+<div class="d-flex">
+
+<!-- Sidebar -->
+<div class="sidebar d-flex flex-column">
+  <div class="brand">
+    <i class="bi bi-database-gear"></i> MySQL Admin
+    <small>Platform Access Manager</small>
+  </div>
+  <div class="p-2">
+    <button class="btn btn-sm btn-outline-light w-100" onclick="openModal('add-server-modal')">
+      <i class="bi bi-plus-circle"></i> Add Server
+    </button>
+  </div>
+  <div id="server-list" class="flex-grow-1 overflow-auto">
+    <div class="px-3 py-2 text-secondary" style="font-size:.75rem">SERVERS</div>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main-content">
+  <div id="no-server" class="empty-state">
+    <i class="bi bi-server"></i>
+    <p class="text-muted">Add a MySQL server to get started</p>
+  </div>
+
+  <div id="server-panel" class="d-none">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+      <div>
+        <h4 id="panel-server-name" class="mb-0"></h4>
+        <small id="panel-server-host" class="text-muted"></small>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-secondary" onclick="testCurrentServer()">
+          <i class="bi bi-activity"></i> Test Connection
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="openEditModal()">
+          <i class="bi bi-pencil"></i> Edit Server
+        </button>
+        <button class="btn btn-sm btn-outline-danger" onclick="removeCurrentServer()">
+          <i class="bi bi-trash"></i> Remove Server
+        </button>
+      </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" id="main-tabs">
+      <li class="nav-item"><a class="nav-link active" href="#" onclick="switchTab('users',this)">
+        <i class="bi bi-people"></i> Users</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" onclick="switchTab('roles',this)">
+        <i class="bi bi-shield-lock"></i> Roles <span class="badge bg-secondary" style="font-size:.65rem;vertical-align:middle">MySQL 8+</span></a></li>
+      <li class="nav-item"><a class="nav-link" href="#" onclick="switchTab('permissions',this)">
+        <i class="bi bi-key"></i> Permissions</a></li>
+    </ul>
+
+    <!-- Users Tab -->
+    <div id="tab-users" class="tab-pane">
+      <div class="section-header">
+        <h5>MySQL Users</h5>
+        <button class="btn btn-primary btn-sm" onclick="openModal('create-user-modal')">
+          <i class="bi bi-person-plus"></i> Create User
+        </button>
+      </div>
+      <div class="card shadow-sm">
+        <table class="table table-hover mb-0" id="users-table">
+          <thead><tr>
+            <th>Username</th><th>Host</th><th>Type</th><th style="width:160px">Actions</th>
+          </tr></thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Roles Tab -->
+    <div id="tab-roles" class="tab-pane d-none">
+      <div id="roles-version-warning" class="alert alert-warning d-none py-2">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        Roles require MySQL 8.0+. This server is running MySQL <strong><span id="roles-version-text"></span></strong>.
+        Role operations are disabled.
+      </div>
+      <div class="section-header">
+        <h5>Roles <span class="badge bg-secondary" style="font-size:.7rem">MySQL 8.0+</span></h5>
+        <button id="btn-create-role" class="btn btn-primary btn-sm" onclick="openModal('create-role-modal')">
+          <i class="bi bi-shield-plus"></i> Create Role
+        </button>
+      </div>
+      <div class="card shadow-sm mb-4">
+        <table class="table table-hover mb-0" id="roles-table">
+          <thead><tr><th>Role Name</th><th>Host</th><th style="width:100px">Actions</th></tr></thead>
+          <tbody id="roles-tbody"></tbody>
+        </table>
+      </div>
+      <div class="card shadow-sm">
+        <div class="card-header fw-semibold">Assign / Revoke Role</div>
+        <div class="card-body">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label small">User</label>
+              <select id="role-assign-user" class="form-select form-select-sm"></select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">Role</label>
+              <select id="role-assign-role" class="form-select form-select-sm"></select>
+            </div>
+            <div class="col-md-2">
+              <button id="btn-assign-role" class="btn btn-success btn-sm w-100" onclick="doAssignRole()">
+                <i class="bi bi-plus"></i> Assign
+              </button>
+            </div>
+            <div class="col-md-2">
+              <button id="btn-revoke-role" class="btn btn-warning btn-sm w-100" onclick="doRevokeRole()">
+                <i class="bi bi-dash"></i> Revoke
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Permissions Tab -->
+    <div id="tab-permissions" class="tab-pane d-none">
+      <div class="row g-2 mb-3 align-items-center">
+        <div class="col-md-5">
+          <label class="form-label small fw-semibold">Select User</label>
+          <select id="perm-user-select" class="form-select" onchange="loadPermissionsMatrix()"></select>
+        </div>
+        <div class="col-auto" style="margin-top:1.5rem">
+          <button class="btn btn-outline-secondary btn-sm" onclick="loadPermissionsMatrix()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+          </button>
+        </div>
+        <div class="col-auto ms-auto" style="margin-top:1.5rem">
+          <span id="matrix-change-summary" class="text-muted small me-2"></span>
+          <button id="btn-apply-changes" class="btn btn-primary btn-sm d-none" onclick="applyPermissionChanges()">
+            Apply Changes
+          </button>
+        </div>
+      </div>
+
+      <div id="matrix-empty" class="empty-state">
+        <i class="bi bi-key"></i>
+        <p class="text-muted">Select a user to view and edit permissions</p>
+      </div>
+
+      <div id="matrix-container" class="d-none">
+        <div class="card shadow-sm">
+          <div class="table-responsive">
+            <table id="permissions-matrix" class="table table-sm table-bordered mb-0 align-middle"></table>
+          </div>
+        </div>
+        <div class="mt-2 text-muted" style="font-size:.75rem">
+          <i class="bi bi-info-circle"></i>
+          Check to grant, uncheck to revoke. Changes are staged until you click <strong>Apply Changes</strong>.
+          System databases are hidden. Table-level grants show as checked but are applied at db level.
+        </div>
+        <details class="mt-2">
+          <summary style="font-size:.75rem;color:#888;cursor:pointer">Show raw SHOW GRANTS output</summary>
+          <pre id="raw-grants-display" class="mt-1" style="font-size:.75rem;background:#1e1e1e;color:#a8ff78;padding:.75rem;border-radius:4px;overflow-x:auto;white-space:pre-wrap"></pre>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Alert area -->
+<div id="alert-area"></div>
+
+<!-- Add Server Modal -->
+<div class="modal fade" id="add-server-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-server"></i> Add MySQL Server</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Display Name *</label>
+          <input id="srv-name" class="form-control" placeholder="Production DB">
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-md-8">
+            <label class="form-label">Host *</label>
+            <input id="srv-host" class="form-control" placeholder="mysql.example.com">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Port</label>
+            <input id="srv-port" class="form-control" value="3306" type="number">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Username *</label>
+          <input id="srv-user" class="form-control" placeholder="admin">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Password *</label>
+          <input id="srv-pass" class="form-control" type="password">
+        </div>
+        <div class="form-check">
+          <input id="srv-tls" class="form-check-input" type="checkbox">
+          <label class="form-check-label" for="srv-tls">Enable TLS</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="doAddServer()">Add Server</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Server Modal -->
+<div class="modal fade" id="edit-server-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit MySQL Server</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Display Name *</label>
+          <input id="edit-srv-name" class="form-control">
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-md-8">
+            <label class="form-label">Host *</label>
+            <input id="edit-srv-host" class="form-control">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Port</label>
+            <input id="edit-srv-port" class="form-control" type="number">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Username *</label>
+          <input id="edit-srv-user" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Password</label>
+          <input id="edit-srv-pass" class="form-control" type="password" placeholder="Leave blank to keep current password">
+        </div>
+        <div class="form-check">
+          <input id="edit-srv-tls" class="form-check-input" type="checkbox">
+          <label class="form-check-label" for="edit-srv-tls">Enable TLS</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="doEditServer()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal fade" id="create-user-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-plus"></i> Create MySQL User</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Username *</label>
+          <input id="new-user-name" class="form-control" placeholder="app_user">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Host *</label>
+          <input id="new-user-host" class="form-control" value="%" placeholder="% or 192.168.1.0/24">
+          <div class="form-text">Use % to allow connections from any host</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Password *</label>
+          <input id="new-user-pass" class="form-control" type="password">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Confirm Password *</label>
+          <input id="new-user-pass2" class="form-control" type="password">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="doCreateUser()">Create User</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Role Modal -->
+<div class="modal fade" id="create-role-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-shield-plus"></i> Create Role</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Role Name *</label>
+          <input id="new-role-name" class="form-control" placeholder="read_only">
+          <div class="form-text">Requires MySQL 8.0+</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="doCreateRole()">Create Role</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let currentServer = null;
+let servers = [];
+let databases = [];
+let users = [];
+let roles = [];
+let currentServerVersion = null;
+
+// ── init ──────────────────────────────────────────────────────────────────────
+
+async function init() {
+  await loadServers();
+}
+
+// ── servers ───────────────────────────────────────────────────────────────────
+
+async function loadServers() {
+  servers = await api('GET', '/api/servers') || [];
+  renderServerList();
+}
+
+function renderServerList() {
+  const el = document.getElementById('server-list');
+  if (!servers.length) {
+    el.innerHTML = '<div class="px-3 py-4 text-secondary text-center" style="font-size:.8rem">No servers yet</div>';
+    return;
+  }
+  el.innerHTML = servers.map(s => `
+    <div class="server-item ${currentServer?.id === s.id ? 'active' : ''}" onclick="selectServer('${s.id}')">
+      <span class="server-status status-unk" id="dot-${s.id}"></span>
+      <span class="server-name">${escHtml(s.name)}</span>
+      <div class="server-host">${escHtml(s.username)}@${escHtml(s.host)}:${s.port}</div>
+    </div>`).join('');
+}
+
+async function selectServer(id) {
+  currentServer = servers.find(s => s.id === id);
+  if (!currentServer) return;
+  renderServerList();
+  document.getElementById('no-server').classList.add('d-none');
+  document.getElementById('server-panel').classList.remove('d-none');
+  document.getElementById('panel-server-name').textContent = currentServer.name;
+  document.getElementById('panel-server-host').textContent = `${currentServer.username}@${currentServer.host}:${currentServer.port}`;
+  switchTab('users', document.querySelector('#main-tabs .nav-link'));
+  await Promise.all([loadUsers(), loadRoles(), loadDatabaseList(), loadServerVersion()]);
+}
+
+async function doAddServer() {
+  const name = document.getElementById('srv-name').value.trim();
+  const host = document.getElementById('srv-host').value.trim();
+  const port = parseInt(document.getElementById('srv-port').value) || 3306;
+  const username = document.getElementById('srv-user').value.trim();
+  const password = document.getElementById('srv-pass').value;
+  const tls = document.getElementById('srv-tls').checked;
+  if (!name || !host || !username || !password) { showAlert('All fields required','danger'); return; }
+  const res = await api('POST', '/api/servers', {name, host, port, username, password, tls_enabled: tls});
+  if (res?.id) {
+    servers.push(res);
+    closeModal('add-server-modal');
+    renderServerList();
+    showAlert(`Server "${name}" added`,'success');
+    ['srv-name','srv-host','srv-user','srv-pass'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('srv-port').value = '3306';
+  }
+}
+
+function openEditModal() {
+  if (!currentServer) return;
+  document.getElementById('edit-srv-name').value = currentServer.name;
+  document.getElementById('edit-srv-host').value = currentServer.host;
+  document.getElementById('edit-srv-port').value = currentServer.port;
+  document.getElementById('edit-srv-user').value = currentServer.username;
+  document.getElementById('edit-srv-pass').value = '';
+  document.getElementById('edit-srv-tls').checked = currentServer.tls_enabled;
+  openModal('edit-server-modal');
+}
+
+async function doEditServer() {
+  if (!currentServer) return;
+  const name = document.getElementById('edit-srv-name').value.trim();
+  const host = document.getElementById('edit-srv-host').value.trim();
+  const port = parseInt(document.getElementById('edit-srv-port').value) || 3306;
+  const username = document.getElementById('edit-srv-user').value.trim();
+  const password = document.getElementById('edit-srv-pass').value;
+  const tls_enabled = document.getElementById('edit-srv-tls').checked;
+  if (!name || !host || !username) { showAlert('Name, host, and username are required', 'danger'); return; }
+  const body = {name, host, port, username, tls_enabled};
+  if (password) body.password = password;
+  const res = await api('PUT', `/api/servers/${currentServer.id}`, body);
+  if (res?.id) {
+    Object.assign(currentServer, res);
+    const idx = servers.findIndex(s => s.id === res.id);
+    if (idx !== -1) servers[idx] = {...servers[idx], ...res};
+    closeModal('edit-server-modal');
+    renderServerList();
+    document.getElementById('panel-server-name').textContent = currentServer.name;
+    document.getElementById('panel-server-host').textContent = `${currentServer.username}@${currentServer.host}:${currentServer.port}`;
+    showAlert(`Server "${name}" updated`, 'success');
+  }
+}
+
+async function removeCurrentServer() {
+  if (!currentServer) return;
+  if (!confirm(`Remove server "${currentServer.name}"?`)) return;
+  await api('DELETE', `/api/servers/${currentServer.id}`);
+  servers = servers.filter(s => s.id !== currentServer.id);
+  currentServer = null;
+  renderServerList();
+  document.getElementById('server-panel').classList.add('d-none');
+  document.getElementById('no-server').classList.remove('d-none');
+  showAlert('Server removed','success');
+}
+
+async function testCurrentServer() {
+  if (!currentServer) return;
+  const res = await api('POST', `/api/servers/${currentServer.id}/test`);
+  const dot = document.getElementById(`dot-${currentServer.id}`);
+  if (res?.ok) {
+    dot.className = 'server-status status-ok';
+    showAlert('Connection successful','success');
+  } else {
+    dot.className = 'server-status status-err';
+    showAlert('Connection failed: ' + (res?.error || 'unknown'), 'danger');
+  }
+}
+
+// ── tabs ──────────────────────────────────────────────────────────────────────
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-pane').forEach(t => t.classList.add('d-none'));
+  document.querySelectorAll('#main-tabs .nav-link').forEach(l => l.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.remove('d-none');
+  if (el) el.classList.add('active');
+  if (name === 'permissions') {
+    populatePermUserSelect();
+  }
+  if (name === 'roles') {
+    populateRoleAssignDropdowns();
+  }
+}
+
+// ── users ─────────────────────────────────────────────────────────────────────
+
+async function loadUsers() {
+  if (!currentServer) return;
+  users = await api('GET', `/api/servers/${currentServer.id}/users`) || [];
+  const tbody = document.getElementById('users-tbody');
+  if (!users.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">No users found</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td><strong>${escHtml(u.username)}</strong></td>
+      <td><code>${escHtml(u.host)}</code></td>
+      <td>${u.is_locked
+        ? '<span class="badge badge-role"><i class="bi bi-shield-lock-fill"></i> Role</span>'
+        : '<span class="badge bg-primary-subtle text-primary-emphasis"><i class="bi bi-person-fill"></i> User</span>'}</td>
+      <td>
+        <button class="btn btn-xs btn-outline-secondary py-0 px-2 me-1"
+          title="Manage Permissions"
+          onclick="goToPermissions('${escHtml(u.username)}','${escHtml(u.host)}')">
+          <i class="bi bi-key"></i>
+        </button>
+        <button class="btn btn-xs btn-outline-danger py-0 px-2"
+          onclick="doDeleteUser('${escHtml(u.username)}','${escHtml(u.host)}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+async function doCreateUser() {
+  const username = document.getElementById('new-user-name').value.trim();
+  const host = document.getElementById('new-user-host').value.trim();
+  const password = document.getElementById('new-user-pass').value;
+  const pass2 = document.getElementById('new-user-pass2').value;
+  if (!username || !host || !password) { showAlert('All fields required','danger'); return; }
+  if (password !== pass2) { showAlert('Passwords do not match','danger'); return; }
+  const res = await api('POST', `/api/servers/${currentServer.id}/users`, {username, host, password});
+  if (res?.message) {
+    closeModal('create-user-modal');
+    showAlert(`User ${username}@${host} created`,'success');
+    ['new-user-name','new-user-pass','new-user-pass2'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('new-user-host').value = '%';
+    await loadUsers();
+  }
+}
+
+async function doDeleteUser(username, host) {
+  if (!confirm(`Drop user '${username}'@'${host}'?`)) return;
+  const res = await api('DELETE', `/api/servers/${currentServer.id}/users`, {username, host});
+  if (res?.message) {
+    showAlert(`User deleted`,'success');
+    await loadUsers();
+  }
+}
+
+// ── roles ─────────────────────────────────────────────────────────────────────
+
+async function loadRoles() {
+  if (!currentServer) return;
+  roles = await api('GET', `/api/servers/${currentServer.id}/roles`) || [];
+  const tbody = document.getElementById('roles-tbody');
+  if (!roles.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4">No roles found (requires MySQL 8.0+)</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = roles.map(r => `
+    <tr>
+      <td><strong>${escHtml(r.name)}</strong></td>
+      <td><code>${escHtml(r.host)}</code></td>
+      <td>
+        <button class="btn btn-xs btn-outline-danger py-0 px-2" onclick="doDeleteRole('${escHtml(r.name)}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+  populateRoleAssignDropdowns();
+}
+
+async function doCreateRole() {
+  if (!rolesSupported()) { showAlert('Roles require MySQL 8.0+', 'danger'); return; }
+  const name = document.getElementById('new-role-name').value.trim();
+  if (!name) { showAlert('Role name required','danger'); return; }
+  const res = await api('POST', `/api/servers/${currentServer.id}/roles`, {name});
+  if (res?.message) {
+    closeModal('create-role-modal');
+    showAlert(`Role '${name}' created`,'success');
+    document.getElementById('new-role-name').value = '';
+    await loadRoles();
+  }
+}
+
+async function doDeleteRole(name) {
+  if (!confirm(`Drop role '${name}'?`)) return;
+  const res = await api('DELETE', `/api/servers/${currentServer.id}/roles`, {name});
+  if (res?.message) {
+    showAlert(`Role deleted`,'success');
+    await loadRoles();
+  }
+}
+
+function populateRoleAssignDropdowns() {
+  const userSel = document.getElementById('role-assign-user');
+  userSel.innerHTML = users.filter(u => !u.is_locked).map(u =>
+    `<option value="${escHtml(u.username)}|${escHtml(u.host)}">${escHtml(u.username)}@${escHtml(u.host)}</option>`
+  ).join('');
+  const roleSel = document.getElementById('role-assign-role');
+  roleSel.innerHTML = roles.map(r =>
+    `<option value="${escHtml(r.name)}">${escHtml(r.name)}</option>`
+  ).join('');
+}
+
+async function doAssignRole() {
+  const [username, host] = (document.getElementById('role-assign-user').value || '').split('|');
+  const role = document.getElementById('role-assign-role').value;
+  if (!username || !role) { showAlert('Select a user and role','danger'); return; }
+  const res = await api('POST', `/api/servers/${currentServer.id}/assign-role`, {username, host, role});
+  if (res?.message) showAlert(`Role '${role}' assigned to ${username}@${host}`,'success');
+}
+
+async function doRevokeRole() {
+  const [username, host] = (document.getElementById('role-assign-user').value || '').split('|');
+  const role = document.getElementById('role-assign-role').value;
+  if (!username || !role) { showAlert('Select a user and role','danger'); return; }
+  const res = await api('POST', `/api/servers/${currentServer.id}/revoke-role`, {username, host, role});
+  if (res?.message) showAlert(`Role '${role}' revoked from ${username}@${host}`,'success');
+}
+
+// ── permissions matrix ────────────────────────────────────────────────────────
+
+const MATRIX_PRIVS = ['SELECT','INSERT','UPDATE','DELETE','CREATE','DROP','ALTER','INDEX','EXECUTE','CREATE TEMPORARY TABLES'];
+const SYSTEM_DBS = new Set(['information_schema','performance_schema','mysql','sys']);
+
+let grantState = {};
+let pendingState = {};
+
+function populatePermUserSelect() {
+  const sel = document.getElementById('perm-user-select');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— select user —</option>' +
+    users.map(u => `<option value="${escHtml(u.username)}|${escHtml(u.host)}">${escHtml(u.username)}@${escHtml(u.host)}</option>`).join('');
+  if (prev) sel.value = prev;
+}
+
+async function loadPermissionsMatrix() {
+  const val = document.getElementById('perm-user-select').value;
+  const container = document.getElementById('matrix-container');
+  const empty = document.getElementById('matrix-empty');
+  if (!val) {
+    container.classList.add('d-none');
+    empty.classList.remove('d-none');
+    return;
+  }
+  const [username, host] = val.split('|');
+  const grants = await api('GET', `/api/servers/${currentServer.id}/grants?username=${encodeURIComponent(username)}&host=${encodeURIComponent(host)}`);
+  const rawEl = document.getElementById('raw-grants-display');
+  if (rawEl) rawEl.textContent = (grants || []).join('\n') || '(no grants returned)';
+  grantState = buildGrantState(parseGrants(grants || []));
+  pendingState = deepCopyState(grantState);
+  renderMatrix();
+  container.classList.remove('d-none');
+  empty.classList.add('d-none');
+  updateApplyButton();
+}
+
+function buildGrantState(parsedRows) {
+  const state = {};
+  for (const row of parsedRows) {
+    const key = row.database;
+    if (!state[key]) state[key] = new Set();
+    const priv = row.privilege.toUpperCase();
+    if (priv === 'ALL PRIVILEGES' || priv === 'ALL') {
+      MATRIX_PRIVS.forEach(p => state[key].add(p));
+    } else if (MATRIX_PRIVS.includes(priv)) {
+      state[key].add(priv);
+    }
+  }
+  return state;
+}
+
+function deepCopyState(state) {
+  const copy = {};
+  for (const [k, v] of Object.entries(state)) copy[k] = new Set(v);
+  return copy;
+}
+
+function cellKey(db) { return (db === '*' ? 'global' : db).replace(/[^a-z0-9]/gi, '_'); }
+
+function renderMatrix() {
+  // Grant keys with wildcard patterns (e.g. greenhouse_%) come from SHOW GRANTS
+  // and won't exist in the SHOW DATABASES list — they need their own rows.
+  const grantKeys = Object.keys(grantState).filter(k => k !== '*');
+  const wildcardRows = grantKeys.filter(k => k.includes('%'));
+  const exactGrantRows = grantKeys.filter(k => !k.includes('%'));
+  const ungrantedDbs = databases.filter(d => !SYSTEM_DBS.has(d) && !grantKeys.includes(d));
+  const rows = ['*', ...wildcardRows, ...exactGrantRows, ...ungrantedDbs];
+
+  document.getElementById('permissions-matrix').innerHTML = `
+    <thead class="table-dark">
+      <tr>
+        <th style="min-width:220px">Database</th>
+        ${MATRIX_PRIVS.map(p => `<th>${p}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(db => {
+        const set = pendingState[db] || new Set();
+        const ck = cellKey(db);
+        const isPattern = db !== '*' && db.includes('%');
+        return `<tr${isPattern ? ' class="table-light"' : ''}>
+          <td style="font-size:.82rem">
+            ${db === '*'
+              ? '<span class="badge bg-secondary me-1" style="font-size:.62rem">GLOBAL</span><code>*.*</code>'
+              : isPattern
+                ? `<span class="badge bg-info text-dark me-1" style="font-size:.62rem">PATTERN</span><code>${escHtml(db)}.*</code>`
+                : `<code>${escHtml(db)}.*</code>`}
+          </td>
+          ${MATRIX_PRIVS.map(priv => `
+            <td class="text-center p-1" id="cell-${ck}-${priv}">
+              <input type="checkbox" class="form-check-input" style="cursor:pointer"
+                ${set.has(priv) ? 'checked' : ''}
+                data-db="${escHtml(db)}" data-priv="${escHtml(priv)}"
+                onchange="onMatrixChange(this)">
+            </td>`).join('')}
+        </tr>`;
+      }).join('')}
+    </tbody>`;
+}
+
+function onMatrixChange(cb) {
+  const db = cb.dataset.db;
+  const priv = cb.dataset.priv;
+  if (cb.checked) {
+    if (!pendingState[db]) pendingState[db] = new Set();
+    pendingState[db].add(priv);
+  } else {
+    pendingState[db]?.delete(priv);
+    if (pendingState[db]?.size === 0) delete pendingState[db];
+  }
+  const ck = cellKey(db);
+  const wasBefore = grantState[db]?.has(priv) || false;
+  document.getElementById(`cell-${ck}-${priv}`)?.classList.toggle('pending', cb.checked !== wasBefore);
+  updateApplyButton();
+}
+
+function getDiff() {
+  const toGrant = [], toRevoke = [];
+  const allDbs = new Set([...Object.keys(grantState), ...Object.keys(pendingState)]);
+  for (const db of allDbs) {
+    for (const priv of MATRIX_PRIVS) {
+      const had = grantState[db]?.has(priv) || false;
+      const has = pendingState[db]?.has(priv) || false;
+      if (has && !had) toGrant.push({db, priv});
+      if (!has && had) toRevoke.push({db, priv});
+    }
+  }
+  return {toGrant, toRevoke};
+}
+
+function updateApplyButton() {
+  const {toGrant, toRevoke} = getDiff();
+  const total = toGrant.length + toRevoke.length;
+  const btn = document.getElementById('btn-apply-changes');
+  const summary = document.getElementById('matrix-change-summary');
+  if (total > 0) {
+    btn.classList.remove('d-none');
+    btn.textContent = `Apply ${total} Change${total !== 1 ? 's' : ''}`;
+    const parts = [];
+    if (toGrant.length) parts.push(`${toGrant.length} to grant`);
+    if (toRevoke.length) parts.push(`${toRevoke.length} to revoke`);
+    summary.textContent = parts.join(', ');
+  } else {
+    btn.classList.add('d-none');
+    summary.textContent = '';
+  }
+}
+
+async function applyPermissionChanges() {
+  const val = document.getElementById('perm-user-select').value;
+  if (!val) return;
+  const [username, host] = val.split('|');
+  const {toGrant, toRevoke} = getDiff();
+
+  const lines = [
+    ...toGrant.map(({db, priv}) => `  GRANT ${priv} ON ${db === '*' ? '*.*' : db+'.*'} TO ${username}@${host}`),
+    ...toRevoke.map(({db, priv}) => `  REVOKE ${priv} ON ${db === '*' ? '*.*' : db+'.*'} FROM ${username}@${host}`)
+  ];
+  if (!confirm(`Apply the following ${lines.length} change${lines.length !== 1 ? 's' : ''}?\n\n${lines.join('\n')}`)) return;
+
+  const ops = [
+    ...toGrant.map(({db, priv}) => api('POST', `/api/servers/${currentServer.id}/grants`,
+      {username, host, privilege: priv, database: db, table: '*'})),
+    ...toRevoke.map(({db, priv}) => api('POST', `/api/servers/${currentServer.id}/revoke`,
+      {username, host, privilege: priv, database: db, table: '*'}))
+  ];
+  const results = await Promise.all(ops);
+  const failed = results.filter(r => !r?.message).length;
+  if (failed) {
+    showAlert(`${failed} operation(s) failed`, 'warning');
+  } else {
+    showAlert(`Applied ${ops.length} change${ops.length !== 1 ? 's' : ''} successfully`, 'success');
+  }
+  await loadPermissionsMatrix();
+}
+
+async function loadDatabaseList() {
+  databases = await api('GET', `/api/servers/${currentServer.id}/databases`) || [];
+}
+
+async function loadServerVersion() {
+  if (!currentServer) return;
+  const res = await api('GET', `/api/servers/${currentServer.id}/version`);
+  currentServerVersion = res?.version || null;
+  applyRoleVersionGating();
+}
+
+function rolesSupported() {
+  if (!currentServerVersion) return true; // unknown — don't block
+  return parseInt(currentServerVersion.split('.')[0]) >= 8;
+}
+
+function applyRoleVersionGating() {
+  const supported = rolesSupported();
+  const warning = document.getElementById('roles-version-warning');
+  const versionText = document.getElementById('roles-version-text');
+  if (warning) warning.classList.toggle('d-none', supported);
+  if (versionText && currentServerVersion) versionText.textContent = currentServerVersion;
+  ['btn-create-role', 'btn-assign-role', 'btn-revoke-role'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !supported;
+  });
+}
+
+function parseGrants(grantStrings) {
+  const rows = [];
+  for (const g of grantStrings) {
+    const m = g.match(/^GRANT (.+) ON (.+) TO /i);
+    if (!m) continue;
+    const privsPart = m[1].trim();
+    const targetPart = m[2].trim();
+    const withGrantOption = / WITH GRANT OPTION/i.test(g);
+
+    let db = '*', table = '*';
+    if (targetPart !== '*.*') {
+      const tm = targetPart.match(/^`([^`]*)`\.(?:`([^`]*)`|\*)$/);
+      if (tm) { db = tm[1]; table = tm[2] || '*'; }
+    }
+
+    const privs = privsPart.split(',').map(p => p.trim()).filter(p => p && p.toUpperCase() !== 'USAGE');
+    for (const priv of privs) rows.push({privilege: priv, database: db, table});
+    if (withGrantOption) rows.push({privilege: 'GRANT OPTION', database: db, table});
+  }
+  return rows;
+}
+
+function goToPermissions(username, host) {
+  switchTab('permissions', null);
+  document.querySelectorAll('#main-tabs .nav-link').forEach((l,i) => l.classList.toggle('active', i === 2));
+  populatePermUserSelect();
+  const sel = document.getElementById('perm-user-select');
+  const opt = Array.from(sel.options).find(o => o.value === `${username}|${host}`);
+  if (opt) { opt.selected = true; loadPermissionsMatrix(); }
+}
+
+
+// ── api helper ────────────────────────────────────────────────────────────────
+
+async function api(method, url, body) {
+  try {
+    const opts = {
+      method,
+      headers: {'Content-Type': 'application/json'},
+    };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(url, opts);
+    const data = await res.json();
+    if (!res.ok) {
+      showAlert(data.error || `HTTP ${res.status}`, 'danger');
+      return null;
+    }
+    return data;
+  } catch (e) {
+    showAlert('Network error: ' + e.message, 'danger');
+    return null;
+  }
+}
+
+// ── modal helpers ─────────────────────────────────────────────────────────────
+
+function openModal(id) {
+  bootstrap.Modal.getOrCreateInstance(document.getElementById(id)).show();
+}
+function closeModal(id) {
+  bootstrap.Modal.getInstance(document.getElementById(id))?.hide();
+}
+
+// ── alerts ────────────────────────────────────────────────────────────────────
+
+function showAlert(msg, type) {
+  const id = 'alert-' + Date.now();
+  const el = document.createElement('div');
+  el.id = id;
+  el.className = `alert alert-${type} alert-dismissible shadow-sm`;
+  el.innerHTML = `${escHtml(msg)}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+  document.getElementById('alert-area').appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+// ── utils ─────────────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+</script>
+</body>
+</html>

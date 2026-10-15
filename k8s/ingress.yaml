@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mysql-admin
+  namespace: mysql-admin
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Restrict to internal/VPN CIDR only — do NOT expose to the public internet
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+spec:
+  ingressClassName: nginx   # change to your ingress class
+  tls:
+    - hosts:
+        - mysql-admin.internal.example.com
+      secretName: mysql-admin-tls   # cert-manager or pre-created TLS secret
+  rules:
+    - host: mysql-admin.internal.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mysql-admin
+                port:
+                  number: 80
